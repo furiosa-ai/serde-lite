@@ -1,9 +1,10 @@
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, HashSet},
     convert::TryInto,
-    hash::Hash,
+    hash::{BuildHasher, Hash},
+    ops::Range,
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -111,6 +112,19 @@ impl Deserialize for String {
         val.as_str()
             .map(String::from)
             .ok_or_else(|| Error::invalid_value_static("string"))
+    }
+}
+
+impl<'a, T> Deserialize for Cow<'a, T>
+where
+    T: ?Sized + ToOwned<Owned = String>,
+{
+    #[inline]
+    fn deserialize(val: &Intermediate) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        String::deserialize(val).map(|v| Self::Owned(v))
     }
 }
 
@@ -270,9 +284,36 @@ deserialize_tuple!(14 => (0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9 10 T
 deserialize_tuple!(15 => (0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9 10 T10 11 T11 12 T12 13 T13 14 T14));
 deserialize_tuple!(16 => (0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9 10 T10 11 T11 12 T12 13 T13 14 T14 15 T15));
 
-impl<K, V> Deserialize for HashMap<K, V>
+impl<K, V, S> Deserialize for HashMap<K, V, S>
 where
     K: From<Cow<'static, str>> + Eq + Hash,
+    V: Deserialize,
+    S: BuildHasher + Default,
+{
+    fn deserialize(val: &Intermediate) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        let val = val
+            .as_map()
+            .ok_or_else(|| Error::invalid_value_static("map"))?;
+
+        let mut res = HashMap::with_capacity_and_hasher(val.len(), Default::default());
+
+        for (name, value) in val {
+            let k = K::from(name.clone());
+            let v = V::deserialize(value)?;
+
+            res.insert(k, v);
+        }
+
+        Ok(res)
+    }
+}
+
+impl<K, V> Deserialize for BTreeMap<K, V>
+where
+    K: From<Cow<'static, str>> + Ord,
     V: Deserialize,
 {
     fn deserialize(val: &Intermediate) -> Result<Self, Error>
@@ -283,7 +324,7 @@ where
             .as_map()
             .ok_or_else(|| Error::invalid_value_static("map"))?;
 
-        let mut res = HashMap::with_capacity(val.len());
+        let mut res = BTreeMap::new();
 
         for (name, value) in val {
             let k = K::from(name.clone());
@@ -323,6 +364,56 @@ where
     }
 }
 
+impl<T, S> Deserialize for HashSet<T, S>
+where
+    T: Deserialize + Eq + Hash,
+    S: BuildHasher + Default,
+{
+    fn deserialize(val: &Intermediate) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        let val = val
+            .as_array()
+            .ok_or_else(|| Error::invalid_value_static("array"))?;
+
+        let mut res = HashSet::with_capacity_and_hasher(val.len(), Default::default());
+
+        for value in val {
+            let t = T::deserialize(value)?;
+
+            res.insert(t);
+        }
+
+        Ok(res)
+    }
+}
+
+#[cfg(feature = "preserve-order")]
+impl<T> Deserialize for indexmap::IndexSet<T>
+where
+    T: Deserialize + Eq + Hash,
+{
+    fn deserialize(val: &Intermediate) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        let val = val
+            .as_array()
+            .ok_or_else(|| Error::invalid_value_static("array"))?;
+
+        let mut res = indexmap::IndexSet::with_capacity(val.len());
+
+        for value in val {
+            let t = T::deserialize(value)?;
+
+            res.insert(t);
+        }
+
+        Ok(res)
+    }
+}
+
 macro_rules! deserialize_wrapper {
     ( $x:ident ) => {
         impl<T> Deserialize for $x<T>
@@ -345,3 +436,25 @@ deserialize_wrapper!(Arc);
 deserialize_wrapper!(Cell);
 deserialize_wrapper!(RefCell);
 deserialize_wrapper!(Mutex);
+
+impl<T> Deserialize for Range<T>
+where
+    T: Deserialize,
+{
+    fn deserialize(val: &Intermediate) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        let val = val
+            .as_map()
+            .ok_or_else(|| Error::invalid_value_static("map"))?;
+
+        let start = val.get("start").ok_or(Error::MissingField)?;
+        let start = T::deserialize(start)?;
+
+        let end = val.get("end").ok_or(Error::MissingField)?;
+        let end = T::deserialize(end)?;
+
+        Ok(start..end)
+    }
+}
