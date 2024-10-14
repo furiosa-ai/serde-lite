@@ -68,6 +68,19 @@ pub fn get_field_updater(field: &Field) -> Option<String> {
     }
 }
 
+/// Get field default function (if present).
+pub fn get_field_default(field: &Field) -> Option<String> {
+    if let Some(v) = get_attr_value(&field.attrs, "default") {
+        if let Some(Lit::Str(n)) = v.lit() {
+            Some(n.value())
+        } else {
+            panic!("invalid default attribute");
+        }
+    } else {
+        None
+    }
+}
+
 /// Get enum tag attribute (if present).
 pub fn get_enum_tag(attrs: &[Attribute]) -> Option<String> {
     if let Some(v) = get_attr_value(attrs, "tag") {

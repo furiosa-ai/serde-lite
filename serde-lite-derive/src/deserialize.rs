@@ -367,6 +367,17 @@ fn deserialize_named_fields(fields: &FieldsNamed) -> (TokenStream, TokenStream) 
                     .map_err(|err| __field_errors.push(serde_lite::NamedFieldError::new_static(#lname, err)))
                     .ok();
             });
+        } else if let Some(func) = attributes::get_field_default(field) {
+            let func: TokenStream = func.parse().unwrap();
+
+            deserialize.extend(quote! {
+                let #name = __obj
+                    .get(#lname)
+                    .map(#deserializer)
+                    .unwrap_or_else(|| Ok(#func()))
+                    .map_err(|err| __field_errors.push(serde_lite::NamedFieldError::new_static(#lname, err)))
+                    .ok();
+            });
         } else {
             deserialize.extend(quote! {
                 let #name = __obj

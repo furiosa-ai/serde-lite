@@ -935,6 +935,37 @@ fn test_deserialize_from() {
     assert_eq!(val.0, 13);
 }
 
+#[test]
+fn test_default_function() {
+    #[derive(Deserialize, PartialEq, Debug)]
+    enum A {
+        Variant {
+            #[serde(default)]
+            foo: usize,
+
+            #[serde(default = "default_bar")]
+            bar: String,
+        },
+    }
+
+    fn default_bar() -> String {
+        "hello".to_string()
+    }
+
+    let input = intermediate!({
+        "Variant": {},
+    });
+
+    let val = A::deserialize(&input).unwrap();
+    assert_eq!(
+        val,
+        A::Variant {
+            foo: 0,
+            bar: "hello".to_string()
+        }
+    );
+}
+
 /// Helper.
 fn get_map_field<'a>(map: &'a Map, name: &str) -> &'a Map {
     map.get(name).unwrap().as_map().unwrap()
