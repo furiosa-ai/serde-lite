@@ -94,6 +94,19 @@ pub fn get_enum_content(attrs: &[Attribute]) -> Option<String> {
     }
 }
 
+/// Get `from` attribute (if present).
+pub fn get_from(attrs: &[Attribute]) -> Option<String> {
+    if let Some(v) = get_attr_value(attrs, "from") {
+        if let Some(Lit::Str(n)) = v.lit() {
+            Some(n.value())
+        } else {
+            panic!("invalid from attribute");
+        }
+    } else {
+        None
+    }
+}
+
 /// Get the rename attribute for a given enum variant or the variant name.
 pub fn get_variant_name(variant: &Variant) -> String {
     if let Some(v) = get_attr_value(&variant.attrs, "rename") {

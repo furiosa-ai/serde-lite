@@ -914,6 +914,27 @@ fn test_update_with() {
     assert_eq!(val.field.0, 15);
 }
 
+#[test]
+fn test_deserialize_from() {
+    #[derive(Deserialize)]
+    #[serde(from = "Delegation")]
+    struct Custom(u32);
+
+    #[derive(Deserialize)]
+    struct Delegation(u32);
+
+    impl From<Delegation> for Custom {
+        fn from(d: Delegation) -> Self {
+            Self(d.0 + 1)
+        }
+    }
+
+    let input = intermediate!(12);
+
+    let val = Custom::deserialize(&input).unwrap();
+    assert_eq!(val.0, 13);
+}
+
 /// Helper.
 fn get_map_field<'a>(map: &'a Map, name: &str) -> &'a Map {
     map.get(name).unwrap().as_map().unwrap()

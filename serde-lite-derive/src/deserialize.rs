@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use proc_macro2::{Literal, Span, TokenStream};
 use quote::quote;
-use syn::{Data, DataEnum, Fields, FieldsNamed, FieldsUnnamed, Ident, Variant};
+use syn::{Attribute, Data, DataEnum, Fields, FieldsNamed, FieldsUnnamed, Ident, Variant};
 use synstructure::AddBounds;
 
 use crate::attributes;
@@ -10,30 +10,14 @@ use crate::attributes;
 /// Expand the derive Deserialize.
 // TODO: use features of synstructure more extensively.
 pub(crate) fn derive_deserialize(mut s: synstructure::Structure) -> TokenStream {
-    let deserialize = match s.ast().data.clone() {
-        Data::Struct(data) => match data.fields {
-            Fields::Named(fields) => expand_struct_named_fields(fields),
-            Fields::Unnamed(fields) => expand_struct_unnamed_fields(fields),
-            Fields::Unit => quote! {
-                Ok(Self)
-            },
-        },
-        Data::Enum(data) => {
-            if data.variants.is_empty() {
-                panic!("enum with no variants cannot be deserialized")
-            }
-
-            let attrs = &s.ast().attrs;
-
-            if let Some(tag) = attributes::get_enum_tag(attrs) {
-                let content = attributes::get_enum_content(attrs);
-
-                expand_internally_tagged_enum(&tag, content.as_deref(), data)
-            } else {
-                expand_externally_tagged_enum(data)
-            }
+    let deserialize = if let Some(delegated_type) = attributes::get_from(&s.ast().attrs) {
+        expand_delegation(&delegated_type)
+    } else {
+        match s.ast().data.clone() {
+            Data::Struct(data) => expand_for_struct(data.fields),
+            Data::Enum(data) => expand_for_enum(data, &s.ast().attrs),
+            Data::Union(_) => panic!("derive Deserialize is not supported for union types"),
         }
-        Data::Union(_) => panic!("derive Deserialize is not supported for union types"),
     };
 
     s.add_bounds(AddBounds::Generics);
@@ -46,6 +30,41 @@ pub(crate) fn derive_deserialize(mut s: synstructure::Structure) -> TokenStream 
             }
         },
     )
+}
+
+/// Expand Deserialize as delegation.
+fn expand_delegation(delegated_type: &str) -> TokenStream {
+    let ty: TokenStream = delegated_type.parse().unwrap();
+
+    quote! {
+        <#ty as serde_lite::Deserialize>::deserialize(__val).map(|v| Self::from(v))
+    }
+}
+
+/// Expand Deserialize for a given struct.
+fn expand_for_struct(fields: Fields) -> TokenStream {
+    match fields {
+        Fields::Named(fields) => expand_struct_named_fields(fields),
+        Fields::Unnamed(fields) => expand_struct_unnamed_fields(fields),
+        Fields::Unit => quote! {
+            Ok(Self)
+        },
+    }
+}
+
+/// Expand Deserialize for a given enum.
+fn expand_for_enum(data: DataEnum, attrs: &[Attribute]) -> TokenStream {
+    if data.variants.is_empty() {
+        panic!("enum with no variants cannot be deserialized")
+    }
+
+    if let Some(tag) = attributes::get_enum_tag(attrs) {
+        let content = attributes::get_enum_content(attrs);
+
+        expand_internally_tagged_enum(&tag, content.as_deref(), data)
+    } else {
+        expand_externally_tagged_enum(data)
+    }
 }
 
 /// Expand Deserialize for named struct fields.
