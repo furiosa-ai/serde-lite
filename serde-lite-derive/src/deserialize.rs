@@ -332,14 +332,20 @@ fn deserialize_named_fields(fields: &FieldsNamed) -> (TokenStream, TokenStream) 
         let ty = &field.ty;
         let sname = attributes::get_field_name(field);
         let lname = Literal::string(&sname);
-        let deserializer = attributes::get_field_deserializer(field)
-            .map(|path| TokenStream::from_str(&path))
-            .map(|res| res.expect("invalid path given for the deserialize_with attribute"))
-            .unwrap_or_else(|| {
-                quote! {
-                    <#ty as serde_lite::Deserialize>::deserialize
-                }
-            });
+        let deserializer = if let Some(path) = attributes::get_field_deserializer(field) {
+            TokenStream::from_str(&path)
+                .expect("invalid path given for the deserialize_with attribute")
+        } else if let Some(path) = attributes::get_field_with(field) {
+            let path =
+                TokenStream::from_str(&path).expect("invalid path given for the with attribute");
+
+            quote! { #path::deserialize_lite }
+        } else {
+            quote! {
+                <#ty as serde_lite::Deserialize>::deserialize
+            }
+        };
+
         let skip = attributes::has_flag(&field.attrs, "skip")
             || attributes::has_flag(&field.attrs, "skip_deserializing");
 

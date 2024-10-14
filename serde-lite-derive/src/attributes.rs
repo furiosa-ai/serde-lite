@@ -55,6 +55,19 @@ pub fn get_field_deserializer(field: &Field) -> Option<String> {
     }
 }
 
+/// Get field serializer/deserializer module path (if present).
+pub fn get_field_with(field: &Field) -> Option<String> {
+    if let Some(v) = get_attr_value(&field.attrs, "with") {
+        if let Some(Lit::Str(n)) = v.lit() {
+            Some(n.value())
+        } else {
+            panic!("invalid with attribute");
+        }
+    } else {
+        None
+    }
+}
+
 /// Get field updater path (if present).
 pub fn get_field_updater(field: &Field) -> Option<String> {
     if let Some(v) = get_attr_value(&field.attrs, "update_with") {
