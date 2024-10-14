@@ -2,53 +2,50 @@ use std::str::FromStr;
 
 use proc_macro2::{Literal, Span, TokenStream};
 use quote::quote;
-use syn::{
-    Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed,
-    Generics, Ident, Variant,
-};
+use syn::{Data, DataEnum, Fields, FieldsNamed, FieldsUnnamed, Ident, Variant};
+use synstructure::AddBounds;
 
 use crate::attributes;
 
 /// Expand the derive Deserialize.
-pub fn derive_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = syn::parse_macro_input!(input as DeriveInput);
+// TODO: use features of synstructure more extensively.
+pub(crate) fn derive_deserialize(mut s: synstructure::Structure) -> TokenStream {
+    let deserialize = match s.ast().data.clone() {
+        Data::Struct(data) => match data.fields {
+            Fields::Named(fields) => expand_struct_named_fields(fields),
+            Fields::Unnamed(fields) => expand_struct_unnamed_fields(fields),
+            Fields::Unit => quote! {
+                Ok(Self)
+            },
+        },
+        Data::Enum(data) => {
+            if data.variants.is_empty() {
+                panic!("enum with no variants cannot be deserialized")
+            }
 
-    let expanded = match input.data {
-        Data::Struct(data) => expand_for_struct(input.ident, input.generics, data, &input.attrs),
-        Data::Enum(data) => expand_for_enum(input.ident, input.generics, data, &input.attrs),
+            let attrs = &s.ast().attrs;
+
+            if let Some(tag) = attributes::get_enum_tag(attrs) {
+                let content = attributes::get_enum_content(attrs);
+
+                expand_internally_tagged_enum(&tag, content.as_deref(), data)
+            } else {
+                expand_externally_tagged_enum(data)
+            }
+        }
         Data::Union(_) => panic!("derive Deserialize is not supported for union types"),
     };
 
-    proc_macro::TokenStream::from(expanded)
-}
-
-/// Expand Deserialize for a given struct.
-fn expand_for_struct(
-    name: Ident,
-    generics: Generics,
-    data: DataStruct,
-    _: &[Attribute],
-) -> TokenStream {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    let deserialize = match data.fields {
-        Fields::Named(fields) => expand_struct_named_fields(fields),
-        Fields::Unnamed(fields) => expand_struct_unnamed_fields(fields),
-        Fields::Unit => quote! {
-            Ok(Self)
-        },
-    };
-
-    let expanded = quote! {
-        #[allow(unused_variables)]
-        impl #impl_generics serde_lite::Deserialize for #name #ty_generics #where_clause {
+    s.add_bounds(AddBounds::Generics);
+    s.bound_impl(
+        quote!(serde_lite::Deserialize),
+        quote! {
+            #[allow(unused_variables)]
             fn deserialize(__val: &serde_lite::Intermediate) -> Result<Self, serde_lite::Error> {
                 #deserialize
             }
-        }
-    };
-
-    expanded
+        },
+    )
 }
 
 /// Expand Deserialize for named struct fields.
@@ -72,37 +69,6 @@ fn expand_struct_unnamed_fields(fields: FieldsUnnamed) -> TokenStream {
         #deserialize
 
         Ok(Self(#constructor))
-    }
-}
-
-/// Expand Deserialize for a given enum.
-fn expand_for_enum(
-    name: Ident,
-    generics: Generics,
-    data: DataEnum,
-    attrs: &[Attribute],
-) -> TokenStream {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    if data.variants.is_empty() {
-        panic!("enum with no variants cannot be deserialized")
-    }
-
-    let deserialize = if let Some(tag) = attributes::get_enum_tag(attrs) {
-        let content = attributes::get_enum_content(attrs);
-
-        expand_internally_tagged_enum(&tag, content.as_deref(), data)
-    } else {
-        expand_externally_tagged_enum(data)
-    };
-
-    quote! {
-        #[allow(unused_variables)]
-        impl #impl_generics serde_lite::Deserialize for #name #ty_generics #where_clause {
-            fn deserialize(__val: &serde_lite::Intermediate) -> Result<Self, serde_lite::Error> {
-                #deserialize
-            }
-        }
     }
 }
 
