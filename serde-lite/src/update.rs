@@ -1,5 +1,5 @@
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Borrow,
     cell::RefCell,
     collections::HashMap,
     hash::Hash,
@@ -222,7 +222,7 @@ update_tuple!(16 => (0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9 10 T10 11
 
 impl<K, V> Update for HashMap<K, V>
 where
-    K: From<Cow<'static, str>> + Borrow<str> + Eq + Hash,
+    K: Deserialize + Borrow<str> + Eq + Hash,
     V: Update,
 {
     fn update(&mut self, val: &Intermediate) -> Result<(), Error> {
@@ -234,7 +234,7 @@ where
             if let Some(inner) = self.get_mut(name) {
                 V::update(inner, value)?;
             } else {
-                let k = K::from(name.clone());
+                let k = Deserialize::deserialize(&Intermediate::String(name.clone()))?;
                 let v = V::deserialize(value)?;
 
                 self.insert(k, v);
@@ -248,7 +248,7 @@ where
 #[cfg(feature = "preserve-order")]
 impl<K, V> Update for indexmap::IndexMap<K, V>
 where
-    K: From<Cow<'static, str>> + Borrow<str> + Eq + Hash,
+    K: Deserialize + Borrow<str> + Eq + Hash,
     V: Update,
 {
     fn update(&mut self, val: &Intermediate) -> Result<(), Error> {
@@ -260,7 +260,7 @@ where
             if let Some(inner) = self.get_mut(name as &str) {
                 V::update(inner, value)?;
             } else {
-                let k = K::from(name.clone());
+                let k = Deserialize::deserialize(&Intermediate::String(name.clone()))?;
                 let v = V::deserialize(value)?;
 
                 self.insert(k, v);

@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{Error, Intermediate};
+use crate::{Error, Intermediate, Number};
 
 /// Deserialize trait.
 ///
@@ -284,9 +284,36 @@ deserialize_tuple!(14 => (0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9 10 T
 deserialize_tuple!(15 => (0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9 10 T10 11 T11 12 T12 13 T13 14 T14));
 deserialize_tuple!(16 => (0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9 10 T10 11 T11 12 T12 13 T13 14 T14 15 T15));
 
+fn deserialize_key<K>(input: &str) -> Result<K, Error>
+where
+    K: Deserialize,
+{
+    if let Ok(key) = K::deserialize(&Intermediate::String(input.to_owned().into())) {
+        return Ok(key);
+    }
+
+    if let Ok(unsigned) = input.parse::<u64>() {
+        if let Ok(key) = K::deserialize(&Intermediate::Number(Number::UnsignedInt(unsigned))) {
+            return Ok(key);
+        }
+    }
+
+    if let Ok(signed) = input.parse::<i64>() {
+        if let Ok(key) = K::deserialize(&Intermediate::Number(Number::SignedInt(signed))) {
+            return Ok(key);
+        }
+    }
+    if let Ok(float) = input.parse::<f64>() {
+        if let Ok(key) = K::deserialize(&Intermediate::Number(Number::Float(float))) {
+            return Ok(key);
+        }
+    }
+    Err(Error::invalid_value_static("key"))
+}
+
 impl<K, V, S> Deserialize for HashMap<K, V, S>
 where
-    K: From<Cow<'static, str>> + Eq + Hash,
+    K: Deserialize + Eq + Hash,
     V: Deserialize,
     S: BuildHasher + Default,
 {
@@ -301,7 +328,7 @@ where
         let mut res = HashMap::with_capacity_and_hasher(val.len(), Default::default());
 
         for (name, value) in val {
-            let k = K::from(name.clone());
+            let k = deserialize_key(name)?;
             let v = V::deserialize(value)?;
 
             res.insert(k, v);
@@ -313,7 +340,7 @@ where
 
 impl<K, V> Deserialize for BTreeMap<K, V>
 where
-    K: From<Cow<'static, str>> + Ord,
+    K: Deserialize + Ord,
     V: Deserialize,
 {
     fn deserialize(val: &Intermediate) -> Result<Self, Error>
@@ -327,7 +354,7 @@ where
         let mut res = BTreeMap::new();
 
         for (name, value) in val {
-            let k = K::from(name.clone());
+            let k = deserialize_key(name)?;
             let v = V::deserialize(value)?;
 
             res.insert(k, v);
@@ -340,7 +367,7 @@ where
 #[cfg(feature = "preserve-order")]
 impl<K, V> Deserialize for indexmap::IndexMap<K, V>
 where
-    K: From<Cow<'static, str>> + Eq + Hash,
+    K: Deserialize + Eq + Hash,
     V: Deserialize,
 {
     fn deserialize(val: &Intermediate) -> Result<Self, Error>
@@ -354,7 +381,7 @@ where
         let mut res = indexmap::IndexMap::with_capacity(val.len());
 
         for (name, value) in val {
-            let k = K::from(name.clone());
+            let k = deserialize_key(name)?;
             let v = V::deserialize(value)?;
 
             res.insert(k, v);
